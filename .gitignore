@@ -1,0 +1,17 @@
+# Build-output
+bin/
+dist/
+lockping-agent
+lockping-agent.exe
+
+# Secrets & lokale config (horen nooit in de repo)
+.env
+.env.*
+*.pem
+*.key
+agent.json
+devices.json
+
+# Editor/OS
+.DS_Store
+*.swp
