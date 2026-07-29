@@ -14,14 +14,25 @@ openstaat.
 Bij eerste start genereert de agent een sleutelpaar (X25519) en een
 `agent_id` (UUID). Hij registreert zich bij het relay en herverbindt daarna
 altijd onder dat id. Het relay kent van een agent alleen: id, publieke
-sleutel, online/offline.
+sleutel, online/offline. Clients registreren zich op dezelfde manier.
 
-> **Status ID-bewijs**: de challenge waarmee een verbinding bewijst dat ze
-> haar id bezit, is verschoven naar het deploy-increment (vergt persistentie
-> aan relay-zijde). Mitigatie tot dan: door E2E + allowlist levert
-> id-spoofing hooguit verstoring op (presence-leugen/DoS), nooit toegang —
-> commando's zonder geldige box-encryptie van een gepaird device worden
-> genegeerd.
+**ID-bewijs (geïmplementeerd).** `hello` draagt de publieke sleutel mee
+(`pub`). Eerste aanmelding van een id = trust-on-first-use: het relay
+registreert id → sleutel. Bij elke volgende aanmelding volgt een challenge:
+
+1. relay → `{type:"challenge", nonce, relay_pub}` (verse 32-byte nonce);
+2. verbinding → `{type:"prove", mac}` met
+   `mac = HMAC-SHA256(key, nonce)` en
+   `key = SHA256("lockping-relay-auth" ‖ X25519(eigen_priv, relay_pub))`;
+3. het relay verifieert tegen de **geregistreerde** sleutel (een meegegeven
+   andere `pub` verandert daar niets aan) en sluit met code 4403 bij een
+   fout bewijs.
+
+Kanttekening: het sleutelregister is bestandsgebaseerd; op een efemere
+deploy (Cloud Run zonder volume) geldt na een redeploy opnieuw TOFU. Dat
+risico is beperkt — id-kaping levert door E2E + allowlist hooguit
+verstoring op, nooit toegang — en verdwijnt zodra het register naar een
+echte database verhuist.
 
 ## 2. Pairing (eenmalig per client)
 

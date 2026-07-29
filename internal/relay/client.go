@@ -10,6 +10,8 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
+
+	"github.com/rudymertens2-ops/lockping-agent/internal/secure"
 )
 
 // Handler turns an incoming envelope payload into an optional reply.
@@ -19,24 +21,30 @@ type Handler func(ctx context.Context, from, payload string) (reply string, ok b
 type Client struct {
 	url     string
 	id      string
+	keys    secure.Keys
 	handle  Handler
 	backoff backoff
 }
 
 // message covers every frame we exchange with the relay.
 type message struct {
-	Type    string `json:"type"`
-	ID      string `json:"id,omitempty"`
-	Role    string `json:"role,omitempty"`
-	To      string `json:"to,omitempty"`
-	From    string `json:"from,omitempty"`
-	Payload string `json:"payload,omitempty"`
-	Code    string `json:"code,omitempty"`
+	Type     string `json:"type"`
+	ID       string `json:"id,omitempty"`
+	Role     string `json:"role,omitempty"`
+	Pub      string `json:"pub,omitempty"`
+	To       string `json:"to,omitempty"`
+	From     string `json:"from,omitempty"`
+	Payload  string `json:"payload,omitempty"`
+	Code     string `json:"code,omitempty"`
+	Nonce    string `json:"nonce,omitempty"`
+	RelayPub string `json:"relay_pub,omitempty"`
+	MAC      string `json:"mac,omitempty"`
 }
 
-// New builds a client for the given relay URL and agent ID.
-func New(url, id string, handle Handler) *Client {
-	return &Client{url: url, id: id, handle: handle, backoff: newBackoff()}
+// New builds a client for the given relay URL and agent identity; the keys
+// answer the relay's possession challenge (docs/protocol.md § 1).
+func New(url, id string, keys secure.Keys, handle Handler) *Client {
+	return &Client{url: url, id: id, keys: keys, handle: handle, backoff: newBackoff()}
 }
 
 // Run keeps the connection alive until ctx is cancelled, reconnecting with
@@ -75,15 +83,36 @@ func (c *Client) session(ctx context.Context) error {
 func (c *Client) handshake(ctx context.Context, conn *websocket.Conn) error {
 	hctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if err := wsjson.Write(hctx, conn, message{Type: "hello", ID: c.id, Role: "agent"}); err != nil {
+	hello := message{Type: "hello", ID: c.id, Role: "agent", Pub: secure.EncodeKey(c.keys.Pub)}
+	if err := wsjson.Write(hctx, conn, hello); err != nil {
 		return fmt.Errorf("hello: %w", err)
 	}
 	var resp message
 	if err := wsjson.Read(hctx, conn, &resp); err != nil {
 		return fmt.Errorf("welcome: %w", err)
 	}
+	if resp.Type == "challenge" {
+		if err := c.prove(hctx, conn, resp); err != nil {
+			return err
+		}
+		if err := wsjson.Read(hctx, conn, &resp); err != nil {
+			return fmt.Errorf("welcome na challenge: %w", err)
+		}
+	}
 	if resp.Type != "welcome" {
 		return fmt.Errorf("handshake refused: %s/%s", resp.Type, resp.Code)
+	}
+	return nil
+}
+
+// prove answers the relay's key-possession challenge.
+func (c *Client) prove(ctx context.Context, conn *websocket.Conn, challenge message) error {
+	mac, err := secure.ProveChallenge(challenge.Nonce, challenge.RelayPub, c.keys)
+	if err != nil {
+		return err
+	}
+	if err := wsjson.Write(ctx, conn, message{Type: "prove", MAC: mac}); err != nil {
+		return fmt.Errorf("prove: %w", err)
 	}
 	return nil
 }
