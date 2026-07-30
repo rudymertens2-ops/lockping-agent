@@ -1,0 +1,48 @@
+version: 2
+project_name: lockping-agent
+
+builds:
+  - main: ./cmd/lockping-agent
+    binary: lockping-agent
+    env:
+      - CGO_ENABLED=0
+    goos: [linux, windows]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+
+# Stabiele bestandsnamen (zonder versie) zodat de landingspagina naar
+# /releases/latest/download/<naam> kan linken.
+archives:
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+nfpms:
+  - package_name: lockping-agent
+    file_name_template: "{{ .PackageName }}_{{ .Os }}_{{ .Arch }}"
+    vendor: RM-Worx
+    homepage: https://lockping.rm-worx.be
+    maintainer: Rudy Mertens <rudy@rm-worx.be>
+    description: >-
+      See from your phone whether your PC is locked, and lock it with one
+      tap. Check. Tap. Locked.
+    license: MIT
+    formats: [rpm, deb]
+    contents:
+      - src: packaging/lockping-agent.service
+        dst: /usr/lib/systemd/user/lockping-agent.service
+
+checksum:
+  name_template: checksums.txt
+
+# Toekomstig haakje: Windows-exe signeren met Azure Trusted Signing kan in
+# de release-workflow (azure/trusted-signing-action) zodra het Azure-account
+# en de identiteitsvalidatie er zijn — zie README § Releases.
+
+release:
+  draft: false
+  prerelease: auto

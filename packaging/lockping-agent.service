@@ -1,0 +1,14 @@
+# systemd user unit: draait de agent in je gebruikerssessie.
+#   systemctl --user enable --now lockping-agent
+# Pairen: stop de service even en draai `lockping-agent run -pair`.
+[Unit]
+Description=LockPing agent (Check. Tap. Locked.)
+After=network-online.target
+
+[Service]
+ExecStart=/usr/bin/lockping-agent run
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
