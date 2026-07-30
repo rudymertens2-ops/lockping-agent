@@ -26,6 +26,9 @@ import (
 //go:embed page.html
 var pageHTML []byte
 
+//go:embed logo.png
+var logoPNG []byte
+
 // Server serveert de config-UI.
 type Server struct {
 	gw      *gateway.Gateway
@@ -69,6 +72,10 @@ func (s *Server) Start(ctx context.Context, port int) error {
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", s.page)
+	mux.HandleFunc("GET /logo.png", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write(logoPNG)
+	})
 	mux.HandleFunc("GET /api/state", s.state)
 	mux.HandleFunc("GET /qr.png", s.qr)
 	mux.HandleFunc("POST /api/pair", s.guarded(s.pair))
