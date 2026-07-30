@@ -39,6 +39,10 @@ nfpms:
         dst: /usr/share/doc/lockping-agent/README.md
       - src: LICENSE
         dst: /usr/share/doc/lockping-agent/LICENSE
+      - src: packaging/lockping-agent.desktop
+        dst: /usr/share/applications/lockping-agent.desktop
+      - src: packaging/lockping-agent.png
+        dst: /usr/share/pixmaps/lockping-agent.png
     scripts:
       postinstall: packaging/postinstall.sh
 

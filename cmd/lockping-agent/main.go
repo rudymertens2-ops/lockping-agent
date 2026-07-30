@@ -23,11 +23,16 @@ import (
 	"github.com/rudymertens2-ops/lockping-agent/internal/relay"
 	"github.com/rudymertens2-ops/lockping-agent/internal/secure"
 	"github.com/rudymertens2-ops/lockping-agent/internal/session"
+	"github.com/rudymertens2-ops/lockping-agent/internal/webui"
 )
 
 // defaultRelayURL is het productie-relay; overschrijfbaar met -relay
 // (bv. een lokale dev-opstelling).
 const defaultRelayURL = "wss://relay.lockping.rm-worx.be/ws"
+
+// defaultUIPort is waar de lokale config-UI luistert (alleen 127.0.0.1);
+// het .desktop-bestand en de tray verwijzen hiernaar.
+const defaultUIPort = 41800
 
 func main() {
 	if len(os.Args) < 2 {
@@ -72,11 +77,15 @@ func run(cmd string, args []string) error {
 }
 
 // runRelay connects the agent to the relay; the gateway enforces that only
-// sealed payloads from paired devices reach the core.
+// sealed payloads from paired devices reach the core. Daarnaast draait de
+// config-UI (127.0.0.1) en optioneel een tray-icoon.
 func runRelay(ctx context.Context, ctrl session.Controller, args []string) error {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
 	relayURL := fs.String("relay", defaultRelayURL, "relay WebSocket URL")
-	pair := fs.Bool("pair", false, "open a 5-minute pairing window and print the pairing code")
+	pair := fs.Bool("pair", false, "open a 5-minute pairing window and print the QR in the terminal")
+	uiPort := fs.Int("ui-port", defaultUIPort, "poort van de lokale config-UI")
+	noUI := fs.Bool("no-ui", false, "start de config-UI niet")
+	tray := fs.Bool("tray", false, "toon een tray-icoon (systeemvak)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -97,26 +106,43 @@ func runRelay(ctx context.Context, ctrl session.Controller, args []string) error
 		return err
 	}
 
-	var window *secure.Window
+	host, _ := os.Hostname()
+	c := core.New(ctrl, host, runtime.GOOS, time.Now)
+	gw := gateway.New(c, ident.Keys, ident.AgentID, *relayURL, devices, time.Now)
+
 	if *pair {
-		var secretB64 string
-		if window, secretB64, err = secure.NewWindow(time.Now()); err != nil {
+		code, err := gw.OpenPairing()
+		if err != nil {
 			return err
 		}
-		code := secure.EncodePairCode(*relayURL, ident.AgentID, secretB64)
 		fmt.Printf("Scan de QR met de LockPing-app (of plak de code), geldig %s, eenmalig:\n\n",
 			secure.WindowTTL)
 		qrterminal.GenerateHalfBlock(code, qrterminal.L, os.Stdout)
 		fmt.Printf("\n%s\n\n", code)
 	}
 
-	host, _ := os.Hostname()
-	c := core.New(ctrl, host, runtime.GOOS, time.Now)
-	gw := gateway.New(c, ident.Keys, ident.AgentID, devices, window, time.Now)
+	if !*noUI {
+		ui, err := webui.New(gw, ctrl, host)
+		if err != nil {
+			return err
+		}
+		go func() {
+			if err := ui.Start(ctx, *uiPort); err != nil {
+				log.Printf("webui: %v", err)
+			}
+		}()
+	}
 
 	log.Printf("agent %s (%s/%s, %d paired) connecting to %s",
 		ident.AgentID, host, runtime.GOOS, devices.Count(), *relayURL)
-	return ignoreCancel(relay.New(*relayURL, ident.AgentID, ident.Keys, gw.Handle).Run(ctx))
+
+	connect := func(ctx context.Context) error {
+		return ignoreCancel(relay.New(*relayURL, ident.AgentID, ident.Keys, gw.Handle).Run(ctx))
+	}
+	if *tray {
+		return runWithTray(ctx, *uiPort, connect)
+	}
+	return connect(ctx)
 }
 
 func configDir() (string, error) {

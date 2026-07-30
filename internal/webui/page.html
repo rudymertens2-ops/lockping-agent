@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LockPing Agent</title>
+  <style>
+    :root { --navy:#0d2c4b; --green:#57b87f; --bg:#0b1826; --card:#12253a; --border:#24405c; --text:#e8eef4; --dim:#9db0c2; --warn:#e89b4b; --danger:#e06a52; }
+    * { box-sizing:border-box; }
+    body { font-family:system-ui,sans-serif; background:var(--bg); color:var(--text); margin:0; }
+    main { max-width:520px; margin:0 auto; padding:24px 16px 48px; }
+    h1 { font-size:22px; } h1 .g { color:var(--green); }
+    .sub { color:var(--dim); font-size:13px; margin-top:-8px; }
+    .card { background:var(--card); border:1px solid var(--border); border-radius:14px; padding:16px; margin:12px 0; }
+    button { font:inherit; cursor:pointer; border-radius:10px; border:1px solid var(--border); background:var(--navy); color:#fff; padding:10px 14px; font-weight:600; }
+    button.small { padding:6px 10px; font-weight:400; background:none; color:var(--danger); border-color:var(--border); }
+    .status { font-weight:700; }
+    .status.locked { color:var(--green); } .status.unlocked { color:var(--warn); }
+    #qrwrap { text-align:center; }
+    #qrwrap img { background:#fff; padding:10px; border-radius:12px; }
+    #code { font-family:monospace; font-size:11px; word-break:break-all; color:var(--dim); }
+    table { width:100%; font-size:13px; border-collapse:collapse; }
+    td { padding:6px 4px; border-top:1px solid var(--border); }
+    td.id { font-family:monospace; font-size:11px; }
+    .muted { color:var(--dim); font-size:13px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Lock<span class="g">Ping</span> Agent</h1>
+  <p class="sub">Check. Tap. Locked.</p>
+
+  <div class="card">
+    <div>Deze pc: <b id="machine">…</b> — <span id="lockstate" class="status">…</span></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Telefoon koppelen</h3>
+    <div id="qrwrap" hidden>
+      <img id="qrimg" alt="QR-koppelcode" width="260" height="260">
+      <p class="muted">Nog <span id="ttl">…</span>s geldig · eenmalig bruikbaar</p>
+      <p id="code"></p>
+    </div>
+    <button id="pairbtn">Toon QR-code</button>
+    <p class="muted">Scan met de LockPing-app op je telefoon:
+      <b>app.lockping.rm-worx.be</b> → “PC koppelen”.</p>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0">Gekoppelde toestellen</h3>
+    <table id="devices"></table>
+    <p class="muted" id="nodevices" hidden>Nog geen toestellen gekoppeld.</p>
+  </div>
+</main>
+<script>
+const TOKEN = '__TOKEN__';
+const headers = { 'X-LockPing-Token': TOKEN, 'Content-Type': 'application/json' };
+
+async function refresh() {
+  const state = await (await fetch('/api/state')).json();
+  document.getElementById('machine').textContent = state.machine;
+  const lockEl = document.getElementById('lockstate');
+  if (state.locked === null) { lockEl.textContent = 'status onbekend'; lockEl.className = 'status'; }
+  else if (state.locked) { lockEl.textContent = 'vergrendeld'; lockEl.className = 'status locked'; }
+  else { lockEl.textContent = 'onvergrendeld'; lockEl.className = 'status unlocked'; }
+
+  const wrap = document.getElementById('qrwrap');
+  if (state.pairing) {
+    wrap.hidden = false;
+    document.getElementById('ttl').textContent = state.pairing.expires_in;
+    document.getElementById('code').textContent = state.pairing.code;
+    const img = document.getElementById('qrimg');
+    const src = '/qr.png?v=' + encodeURIComponent(state.pairing.code.slice(-12));
+    if (!img.src.endsWith(src)) img.src = src;
+    document.getElementById('pairbtn').textContent = 'Nieuwe code';
+  } else {
+    wrap.hidden = true;
+    document.getElementById('pairbtn').textContent = 'Toon QR-code';
+  }
+
+  const table = document.getElementById('devices');
+  table.innerHTML = '';
+  for (const d of state.devices) {
+    const row = table.insertRow();
+    row.insertCell().outerHTML = `<td class="id">${d.id}</td>`;
+    row.insertCell().textContent = d.paired_at;
+    const btn = document.createElement('button');
+    btn.className = 'small';
+    btn.textContent = 'ontkoppel';
+    btn.onclick = async () => {
+      if (!confirm('Dit toestel ontkoppelen?')) return;
+      await fetch('/api/unpair', { method: 'POST', headers, body: JSON.stringify({ id: d.id }) });
+      refresh();
+    };
+    row.insertCell().appendChild(btn);
+  }
+  document.getElementById('nodevices').hidden = state.devices.length > 0;
+}
+
+document.getElementById('pairbtn').onclick = async () => {
+  await fetch('/api/pair', { method: 'POST', headers });
+  refresh();
+};
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

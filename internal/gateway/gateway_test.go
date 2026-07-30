@@ -3,7 +3,9 @@ package gateway
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -18,8 +20,8 @@ type fakeSession struct {
 	lockCalls int
 }
 
-func (f *fakeSession) Locked(ctx context.Context) (bool, error) { return f.locked, nil }
-func (f *fakeSession) Lock(ctx context.Context) error           { f.lockCalls++; f.locked = true; return nil }
+func (f *fakeSession) Locked(ctx context.Context) (bool, error)       { return f.locked, nil }
+func (f *fakeSession) Lock(ctx context.Context) error                 { f.lockCalls++; f.locked = true; return nil }
 func (f *fakeSession) Watch(ctx context.Context, fn func(bool)) error { return nil }
 func (f *fakeSession) Close() error                                   { return nil }
 
@@ -29,7 +31,6 @@ type testRig struct {
 	sess       *fakeSession
 	agentKeys  secure.Keys
 	clientKeys secure.Keys
-	window     *secure.Window
 	secretB64  string
 	now        time.Time
 }
@@ -45,25 +46,39 @@ func newRig(t *testing.T, withWindow bool) *testRig {
 		t.Fatal(err)
 	}
 
-	var window *secure.Window
-	var secretB64 string
-	if withWindow {
-		window, secretB64, err = secure.NewWindow(now)
-		if err != nil {
-			t.Fatal(err)
-		}
-	}
-
 	c := core.New(sess, "test-pc", "linux", func() time.Time { return now })
-	return &testRig{
-		gw:         New(c, agentKeys, "agent-1", devices, window, func() time.Time { return now }),
+	rig := &testRig{
+		gw:         New(c, agentKeys, "agent-1", "wss://test/ws", devices, func() time.Time { return now }),
 		sess:       sess,
 		agentKeys:  agentKeys,
 		clientKeys: clientKeys,
-		window:     window,
-		secretB64:  secretB64,
 		now:        now,
 	}
+	if withWindow {
+		code, err := rig.gw.OpenPairing()
+		if err != nil {
+			t.Fatal(err)
+		}
+		rig.secretB64 = secretFromCode(t, code)
+	}
+	return rig
+}
+
+// secretFromCode haalt het pairing-secret uit de code, zoals een client
+// dat uit de QR doet.
+func secretFromCode(t *testing.T, code string) string {
+	t.Helper()
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(code, "lockping:"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parsed struct {
+		Secret string `json:"secret"`
+	}
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatal(err)
+	}
+	return parsed.Secret
 }
 
 // pair performs the client side of a valid pairing and returns the accept.

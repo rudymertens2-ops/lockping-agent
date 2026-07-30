@@ -3,13 +3,15 @@
 // exactly one plaintext exception — a valid pair_request while a pairing
 // window is open. Everything else is silently ignored.
 //
-// Concurrency note: relay.Client delivers messages sequentially on one
-// connection, so Gateway needs no locking.
+// Concurrency: relay.Client delivers messages sequentially, but the config
+// UI opens pairing windows and removes devices from other goroutines; the
+// window is therefore mutex-guarded (the DeviceStore guards itself).
 package gateway
 
 import (
 	"context"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/rudymertens2-ops/lockping-agent/internal/core"
@@ -19,19 +21,58 @@ import (
 
 // Gateway guards one agent's message handling.
 type Gateway struct {
-	core    *core.Core
-	keys    secure.Keys
-	agentID string
-	devices *secure.DeviceStore
-	window  *secure.Window // nil = no pairing possible
-	now     func() time.Time
+	core     *core.Core
+	keys     secure.Keys
+	agentID  string
+	relayURL string
+	devices  *secure.DeviceStore
+	now      func() time.Time
+
+	mu      sync.Mutex
+	window  *secure.Window
+	code    string
+	expires time.Time
 }
 
-// New wires a gateway; window may be nil when pairing is closed.
-func New(c *core.Core, keys secure.Keys, agentID string, devices *secure.DeviceStore,
-	window *secure.Window, now func() time.Time) *Gateway {
-	return &Gateway{core: c, keys: keys, agentID: agentID, devices: devices, window: window, now: now}
+// New wires a gateway; pairing windows worden geopend via OpenPairing.
+func New(c *core.Core, keys secure.Keys, agentID, relayURL string,
+	devices *secure.DeviceStore, now func() time.Time) *Gateway {
+	return &Gateway{core: c, keys: keys, agentID: agentID, relayURL: relayURL,
+		devices: devices, now: now}
 }
+
+// OpenPairing opent een vers (eenmalig, 5-min) pairing-window en geeft de
+// code terug; een eventueel openstaand window vervalt.
+func (g *Gateway) OpenPairing() (string, error) {
+	window, secretB64, err := secure.NewWindow(g.now())
+	if err != nil {
+		return "", err
+	}
+	code := secure.EncodePairCode(g.relayURL, g.agentID, secretB64)
+	g.mu.Lock()
+	g.window = window
+	g.code = code
+	g.expires = g.now().Add(secure.WindowTTL)
+	g.mu.Unlock()
+	return code, nil
+}
+
+// Pairing geeft de actieve code en resterende geldigheid (voor de UI).
+func (g *Gateway) Pairing() (code string, remaining time.Duration, active bool) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.window == nil {
+		return "", 0, false
+	}
+	remaining = g.expires.Sub(g.now())
+	if remaining <= 0 {
+		return "", 0, false
+	}
+	return g.code, remaining, true
+}
+
+// Devices exposes the allowlist (voor de UI: lijst + ontkoppelen).
+func (g *Gateway) Devices() *secure.DeviceStore { return g.devices }
 
 // Handle implements relay.Handler.
 func (g *Gateway) Handle(ctx context.Context, from, payload string) (string, bool) {
@@ -68,7 +109,11 @@ func (g *Gateway) handlePairRequest(from, payload string) (string, bool) {
 	if err != nil || in.Kind != wire.KindPairRequest {
 		return "", false
 	}
-	if !g.window.VerifyRequest(g.now(), from, in.PubKey, in.MAC) {
+
+	g.mu.Lock()
+	window := g.window
+	g.mu.Unlock()
+	if !window.VerifyRequest(g.now(), from, in.PubKey, in.MAC) {
 		log.Printf("gateway: pair_request from %s rejected", from)
 		return "", false
 	}
@@ -76,14 +121,14 @@ func (g *Gateway) handlePairRequest(from, payload string) (string, bool) {
 		log.Printf("gateway: could not store paired device: %v", err)
 		return "", false
 	}
-	g.window.Consume()
+	window.Consume()
 	log.Printf("gateway: paired new device %s", from)
 
 	agentPubB64 := secure.EncodeKey(g.keys.Pub)
 	accept := wire.Payload{
 		Kind:   wire.KindPairAccept,
 		PubKey: agentPubB64,
-		MAC:    g.window.AcceptMAC(g.agentID, agentPubB64),
+		MAC:    window.AcceptMAC(g.agentID, agentPubB64),
 	}
 	enc, err := wire.Encode(accept)
 	if err != nil {

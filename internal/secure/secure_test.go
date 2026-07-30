@@ -2,6 +2,7 @@ package secure
 
 import (
 	"encoding/base64"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -88,6 +89,45 @@ func TestDeviceStoreRejectsBadKey(t *testing.T) {
 	s, _ := LoadDevices(filepath.Join(t.TempDir(), "d.json"))
 	if err := s.Add("x", "bogus"); err == nil {
 		t.Error("bogus key accepted into allowlist")
+	}
+}
+
+func TestDeviceStoreRemove(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "devices.json")
+	s, _ := LoadDevices(path)
+	keys, _ := GenerateKeys()
+	if err := s.Add("phone-1", EncodeKey(keys.Pub)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Remove("phone-1"); err != nil {
+		t.Fatal(err)
+	}
+	if s.Count() != 0 {
+		t.Error("device niet verwijderd")
+	}
+	reloaded, _ := LoadDevices(path)
+	if reloaded.Count() != 0 {
+		t.Error("verwijdering niet gepersisteerd")
+	}
+	if err := s.Remove("ghost"); err == nil {
+		t.Error("verwijderen van onbekend device gaf geen fout")
+	}
+}
+
+func TestDeviceStoreMigratesLegacyFormat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "devices.json")
+	keys, _ := GenerateKeys()
+	legacy := `{"phone-1": "` + EncodeKey(keys.Pub) + `"}`
+	if err := os.WriteFile(path, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s, err := LoadDevices(path)
+	if err != nil {
+		t.Fatalf("legacy formaat niet gemigreerd: %v", err)
+	}
+	got, ok := s.Get("phone-1")
+	if !ok || *got != *keys.Pub {
+		t.Error("gemigreerd device verloren of sleutel corrupt")
 	}
 }
 
