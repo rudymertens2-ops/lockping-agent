@@ -1,8 +1,8 @@
-# Build-output
+# Build-output (root-anchored: cmd/lockping-agent is bronbestand!)
 bin/
 dist/
-lockping-agent
-lockping-agent.exe
+/lockping-agent
+/lockping-agent.exe
 
 # Secrets & lokale config (horen nooit in de repo)
 .env
