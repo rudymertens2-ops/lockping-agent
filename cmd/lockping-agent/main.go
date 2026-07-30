@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/mdp/qrterminal/v3"
+
 	"github.com/rudymertens2-ops/lockping-agent/internal/core"
 	"github.com/rudymertens2-ops/lockping-agent/internal/gateway"
 	"github.com/rudymertens2-ops/lockping-agent/internal/identity"
@@ -101,8 +103,11 @@ func runRelay(ctx context.Context, ctrl session.Controller, args []string) error
 		if window, secretB64, err = secure.NewWindow(time.Now()); err != nil {
 			return err
 		}
-		fmt.Printf("pairing code (valid %s, single use):\n%s\n",
-			secure.WindowTTL, secure.EncodePairCode(*relayURL, ident.AgentID, secretB64))
+		code := secure.EncodePairCode(*relayURL, ident.AgentID, secretB64)
+		fmt.Printf("Scan de QR met de LockPing-app (of plak de code), geldig %s, eenmalig:\n\n",
+			secure.WindowTTL)
+		qrterminal.GenerateHalfBlock(code, qrterminal.L, os.Stdout)
+		fmt.Printf("\n%s\n\n", code)
 	}
 
 	host, _ := os.Hostname()

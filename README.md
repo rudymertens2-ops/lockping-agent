@@ -30,14 +30,32 @@ access, no telemetry).
 
 Full protocol: [docs/protocol.md](docs/protocol.md).
 
+## Quick start (Linux packages)
+
+After installing the rpm/deb:
+
+```
+lockping-agent run -pair    # shows a QR code + pairing code (5 min, single use)
+```
+
+Scan it with the app at <https://app.lockping.rm-worx.be> ("Pair a PC"),
+then stop with Ctrl+C and enable the agent permanently:
+
+```
+systemctl --user enable --now lockping-agent
+```
+
+The production relay is the built-in default; `-relay` overrides it for
+self-hosted or dev setups.
+
 ## Usage
 
 ```
 lockping-agent status                 # print locked/unlocked
 lockping-agent lock                   # lock the session
 lockping-agent watch                  # print the state now and on every change
-lockping-agent run -relay wss://…/ws  # connect to the relay and serve paired devices
-lockping-agent run -relay … -pair     # same, with a 5-minute pairing window
+lockping-agent run [-relay wss://…]   # connect to the relay and serve paired devices
+lockping-agent run -pair              # same, with a QR pairing window (5 minutes)
 ```
 
 ## Platform support

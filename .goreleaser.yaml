@@ -35,6 +35,12 @@ nfpms:
     contents:
       - src: packaging/lockping-agent.service
         dst: /usr/lib/systemd/user/lockping-agent.service
+      - src: README.md
+        dst: /usr/share/doc/lockping-agent/README.md
+      - src: LICENSE
+        dst: /usr/share/doc/lockping-agent/LICENSE
+    scripts:
+      postinstall: packaging/postinstall.sh
 
 checksum:
   name_template: checksums.txt
