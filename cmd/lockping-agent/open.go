@@ -52,5 +52,7 @@ func startAgent() error {
 	if err != nil {
 		return err
 	}
-	return exec.Command(exe, "run").Start()
+	cmd := exec.Command(exe, "run")
+	cmd.SysProcAttr = detachAttr() // Windows: geen zwart consolevenster
+	return cmd.Start()
 }

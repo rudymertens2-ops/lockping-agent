@@ -41,6 +41,15 @@ var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
+		// Dubbelklik op Windows: geen argumenten → gedraag je als een
+		// grafische app en open de companion (start de agent indien nodig).
+		if runtime.GOOS == "windows" {
+			if err := openCompanion(defaultUIPort); err != nil {
+				fmt.Fprintln(os.Stderr, "lockping-agent:", err)
+				os.Exit(1)
+			}
+			return
+		}
 		usage()
 		os.Exit(2)
 	}

@@ -25,3 +25,13 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Windows-installer (NSIS, per-gebruiker)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q nsis
+          cp "$(find dist -name lockping-agent.exe -path '*windows*' | head -1)" packaging/
+          makensis -DVERSION="${GITHUB_REF_NAME#v}" packaging/windows-installer.nsi
+          gh release upload "${GITHUB_REF_NAME}" packaging/lockping-agent-setup.exe --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Toekomst: vóór de upload signeren met azure/trusted-signing-action
+        # (exe én setup.exe) zodra het Trusted Signing-account bestaat.
