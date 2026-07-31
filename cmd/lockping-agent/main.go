@@ -46,6 +46,13 @@ func main() {
 }
 
 func run(cmd string, args []string) error {
+	switch cmd {
+	case "install":
+		return installAutostart()
+	case "uninstall":
+		return uninstallAutostart()
+	}
+
 	ctrl, err := session.New()
 	if err != nil {
 		return err
@@ -85,7 +92,8 @@ func runRelay(ctx context.Context, ctrl session.Controller, args []string) error
 	pair := fs.Bool("pair", false, "open a 5-minute pairing window and print the QR in the terminal")
 	uiPort := fs.Int("ui-port", defaultUIPort, "poort van de lokale config-UI")
 	noUI := fs.Bool("no-ui", false, "start de config-UI niet")
-	tray := fs.Bool("tray", false, "toon een tray-icoon (systeemvak)")
+	tray := fs.Bool("tray", runtime.GOOS == "windows",
+		"toon een tray-icoon (standaard aan op Windows; Linux/GNOME vergt de AppIndicator-extensie)")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -174,7 +182,9 @@ commands:
   status                print locked/unlocked and exit
   lock                  lock the session
   watch                 print the state now and on every change (Ctrl-C to stop)
-  run -relay <ws-url> [-pair]
+  run [-pair] [-tray] [-ui-port N] [-relay <ws-url>]
                         connect to the relay and serve paired devices;
-                        -pair opens a 5-minute pairing window`)
+                        config UI on http://127.0.0.1:41800
+  install | uninstall   Windows: start LockPing with your session (Run key);
+                        Linux: prints the systemctl equivalent`)
 }

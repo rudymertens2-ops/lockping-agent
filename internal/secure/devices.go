@@ -22,6 +22,7 @@ type DeviceStore struct {
 type DeviceInfo struct {
 	ID       string    `json:"-"`
 	Pub      string    `json:"pub"`
+	Name     string    `json:"name,omitempty"`
 	PairedAt time.Time `json:"paired_at"`
 }
 
@@ -50,13 +51,13 @@ func LoadDevices(path string) (*DeviceStore, error) {
 }
 
 // Add registreert een gepaird device en persisteert de store.
-func (s *DeviceStore) Add(clientID, pubB64 string) error {
+func (s *DeviceStore) Add(clientID, pubB64, name string) error {
 	if _, err := DecodeKey(pubB64); err != nil {
 		return err
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.devices[clientID] = DeviceInfo{Pub: pubB64, PairedAt: time.Now()}
+	s.devices[clientID] = DeviceInfo{Pub: pubB64, Name: name, PairedAt: time.Now()}
 	return s.persistLocked()
 }
 

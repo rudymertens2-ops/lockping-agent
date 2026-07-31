@@ -82,7 +82,13 @@ async function refresh() {
   table.innerHTML = '';
   for (const d of state.devices) {
     const row = table.insertRow();
-    row.insertCell().outerHTML = `<td class="id">${d.id}</td>`;
+    const cell = row.insertCell();
+    const name = document.createElement('b');
+    name.textContent = d.name || '(naamloos toestel)';
+    const id = document.createElement('div');
+    id.className = 'id';
+    id.textContent = d.id;
+    cell.append(name, id);
     row.insertCell().textContent = d.paired_at;
     const btn = document.createElement('button');
     btn.className = 'small';

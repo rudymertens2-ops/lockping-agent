@@ -117,7 +117,7 @@ func (g *Gateway) handlePairRequest(from, payload string) (string, bool) {
 		log.Printf("gateway: pair_request from %s rejected", from)
 		return "", false
 	}
-	if err := g.devices.Add(from, in.PubKey); err != nil {
+	if err := g.devices.Add(from, in.PubKey, sanitizeName(in.Machine)); err != nil {
 		log.Printf("gateway: could not store paired device: %v", err)
 		return "", false
 	}
@@ -135,6 +135,20 @@ func (g *Gateway) handlePairRequest(from, payload string) (string, bool) {
 		return "", false
 	}
 	return enc, true
+}
+
+// sanitizeName beperkt de zelfgerapporteerde devicenaam tot iets toonbaars.
+func sanitizeName(name string) string {
+	clean := make([]rune, 0, len(name))
+	for _, r := range name {
+		if r >= 32 && r != 127 {
+			clean = append(clean, r)
+		}
+		if len(clean) >= 40 {
+			break
+		}
+	}
+	return string(clean)
 }
 
 func (g *Gateway) sealReply(out wire.Payload, peerPub *[32]byte) (string, bool) {

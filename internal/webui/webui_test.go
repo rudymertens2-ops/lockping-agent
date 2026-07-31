@@ -111,7 +111,7 @@ func TestForeignHostIsRejected(t *testing.T) {
 func TestUnpairRemovesDevice(t *testing.T) {
 	s, gw := newServer(t)
 	keys, _ := secure.GenerateKeys()
-	if err := gw.Devices().Add("phone-1", secure.EncodeKey(keys.Pub)); err != nil {
+	if err := gw.Devices().Add("phone-1", secure.EncodeKey(keys.Pub), ""); err != nil {
 		t.Fatal(err)
 	}
 

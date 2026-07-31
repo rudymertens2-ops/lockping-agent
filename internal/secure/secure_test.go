@@ -68,7 +68,7 @@ func TestDeviceStoreRoundtrip(t *testing.T) {
 	}
 
 	keys, _ := GenerateKeys()
-	if err := s.Add("phone-1", EncodeKey(keys.Pub)); err != nil {
+	if err := s.Add("phone-1", EncodeKey(keys.Pub), ""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -87,7 +87,7 @@ func TestDeviceStoreRoundtrip(t *testing.T) {
 
 func TestDeviceStoreRejectsBadKey(t *testing.T) {
 	s, _ := LoadDevices(filepath.Join(t.TempDir(), "d.json"))
-	if err := s.Add("x", "bogus"); err == nil {
+	if err := s.Add("x", "bogus", ""); err == nil {
 		t.Error("bogus key accepted into allowlist")
 	}
 }
@@ -96,7 +96,7 @@ func TestDeviceStoreRemove(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "devices.json")
 	s, _ := LoadDevices(path)
 	keys, _ := GenerateKeys()
-	if err := s.Add("phone-1", EncodeKey(keys.Pub)); err != nil {
+	if err := s.Add("phone-1", EncodeKey(keys.Pub), ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Remove("phone-1"); err != nil {

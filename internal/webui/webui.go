@@ -133,6 +133,7 @@ type stateResponse struct {
 
 type deviceJSON struct {
 	ID       string `json:"id"`
+	Name     string `json:"name"`
 	PairedAt string `json:"paired_at"`
 }
 
@@ -151,7 +152,7 @@ func (s *Server) state(w http.ResponseWriter, r *http.Request) {
 		if !d.PairedAt.IsZero() {
 			when = d.PairedAt.Format("2006-01-02 15:04")
 		}
-		resp.Devices = append(resp.Devices, deviceJSON{ID: d.ID, PairedAt: when})
+		resp.Devices = append(resp.Devices, deviceJSON{ID: d.ID, Name: d.Name, PairedAt: when})
 	}
 	if code, remaining, active := s.gw.Pairing(); active {
 		resp.Pairing = &pairingJSON{Code: code, ExpiresIn: int(remaining.Seconds())}
