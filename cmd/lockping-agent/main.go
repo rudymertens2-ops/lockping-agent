@@ -12,11 +12,13 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"syscall"
 	"time"
 
 	"github.com/mdp/qrterminal/v3"
 
+	"github.com/rudymertens2-ops/lockping-agent/internal/autostart"
 	"github.com/rudymertens2-ops/lockping-agent/internal/core"
 	"github.com/rudymertens2-ops/lockping-agent/internal/gateway"
 	"github.com/rudymertens2-ops/lockping-agent/internal/identity"
@@ -33,6 +35,9 @@ const defaultRelayURL = "wss://relay.lockping.rm-worx.be/ws"
 // defaultUIPort is waar de lokale config-UI luistert (alleen 127.0.0.1);
 // het .desktop-bestand en de tray verwijzen hiernaar.
 const defaultUIPort = 41800
+
+// version wordt bij release gezet via -ldflags (zie .goreleaser.yaml).
+var version = "dev"
 
 func main() {
 	if len(os.Args) < 2 {
@@ -51,6 +56,8 @@ func run(cmd string, args []string) error {
 		return installAutostart()
 	case "uninstall":
 		return uninstallAutostart()
+	case "open":
+		return openCompanion(defaultUIPort)
 	}
 
 	ctrl, err := session.New()
@@ -114,9 +121,14 @@ func runRelay(ctx context.Context, ctrl session.Controller, args []string) error
 		return err
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	host, _ := os.Hostname()
 	c := core.New(ctrl, host, runtime.GOOS, time.Now)
 	gw := gateway.New(c, ident.Keys, ident.AgentID, *relayURL, devices, time.Now)
+
+	var connected atomic.Bool
 
 	if *pair {
 		code, err := gw.OpenPairing()
@@ -130,7 +142,13 @@ func runRelay(ctx context.Context, ctrl session.Controller, args []string) error
 	}
 
 	if !*noUI {
-		ui, err := webui.New(gw, ctrl, host)
+		ui, err := webui.New(gw, ctrl, webui.Options{
+			Machine:   host,
+			Version:   version,
+			Connected: connected.Load,
+			Autostart: autostart.New(),
+			Stop:      cancel,
+		})
 		if err != nil {
 			return err
 		}
@@ -145,7 +163,9 @@ func runRelay(ctx context.Context, ctrl session.Controller, args []string) error
 		ident.AgentID, host, runtime.GOOS, devices.Count(), *relayURL)
 
 	connect := func(ctx context.Context) error {
-		return ignoreCancel(relay.New(*relayURL, ident.AgentID, ident.Keys, gw.Handle).Run(ctx))
+		client := relay.New(*relayURL, ident.AgentID, ident.Keys, gw.Handle)
+		client.OnState(func(up bool) { connected.Store(up) })
+		return ignoreCancel(client.Run(ctx))
 	}
 	if *tray {
 		return runWithTray(ctx, *uiPort, connect)
@@ -185,6 +205,7 @@ commands:
   run [-pair] [-tray] [-ui-port N] [-relay <ws-url>]
                         connect to the relay and serve paired devices;
                         config UI on http://127.0.0.1:41800
+  open                  open the companion UI (starts the agent if needed)
   install | uninstall   Windows: start LockPing with your session (Run key);
                         Linux: prints the systemctl equivalent`)
 }

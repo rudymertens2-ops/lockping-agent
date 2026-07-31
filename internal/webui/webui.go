@@ -19,6 +19,7 @@ import (
 
 	qrcode "github.com/skip2/go-qrcode"
 
+	"github.com/rudymertens2-ops/lockping-agent/internal/autostart"
 	"github.com/rudymertens2-ops/lockping-agent/internal/gateway"
 	"github.com/rudymertens2-ops/lockping-agent/internal/session"
 )
@@ -29,23 +30,34 @@ var pageHTML []byte
 //go:embed logo.png
 var logoPNG []byte
 
+// Options bundelt wat de UI toont en kan aansturen.
+type Options struct {
+	Machine   string
+	Version   string
+	Connected func() bool       // relay-verbinding (live)
+	Autostart autostart.Manager // nil = niet tonen
+	Stop      func()            // nette shutdown van de agent
+}
+
 // Server serveert de config-UI.
 type Server struct {
 	gw      *gateway.Gateway
 	sess    session.Controller
-	machine string
+	opts    Options
+	started time.Time
 	// csrfToken bindt muterende verzoeken aan een pagina die wij zelf
 	// geserveerd hebben (verdediging tegen cross-site POSTs naar localhost).
 	csrfToken string
 }
 
 // New bouwt de server; het token is per proces-start vers.
-func New(gw *gateway.Gateway, sess session.Controller, machine string) (*Server, error) {
+func New(gw *gateway.Gateway, sess session.Controller, opts Options) (*Server, error) {
 	tok := make([]byte, 16)
 	if _, err := rand.Read(tok); err != nil {
 		return nil, fmt.Errorf("webui: token: %w", err)
 	}
-	return &Server{gw: gw, sess: sess, machine: machine, csrfToken: hex.EncodeToString(tok)}, nil
+	return &Server{gw: gw, sess: sess, opts: opts, started: time.Now(),
+		csrfToken: hex.EncodeToString(tok)}, nil
 }
 
 // Start luistert op 127.0.0.1:port tot ctx eindigt.
@@ -80,6 +92,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /qr.png", s.qr)
 	mux.HandleFunc("POST /api/pair", s.guarded(s.pair))
 	mux.HandleFunc("POST /api/unpair", s.guarded(s.unpair))
+	mux.HandleFunc("POST /api/autostart", s.guarded(s.autostart))
+	mux.HandleFunc("POST /api/stop", s.guarded(s.stop))
 	return s.localOnly(mux)
 }
 
@@ -125,10 +139,18 @@ func (s *Server) page(w http.ResponseWriter, r *http.Request) {
 }
 
 type stateResponse struct {
-	Machine string       `json:"machine"`
-	Locked  *bool        `json:"locked"`
-	Devices []deviceJSON `json:"devices"`
-	Pairing *pairingJSON `json:"pairing"`
+	Machine   string         `json:"machine"`
+	Version   string         `json:"version"`
+	UptimeSec int            `json:"uptime_sec"`
+	Relay     bool           `json:"relay_connected"`
+	Locked    *bool          `json:"locked"`
+	Devices   []deviceJSON   `json:"devices"`
+	Pairing   *pairingJSON   `json:"pairing"`
+	Autostart *autostartJSON `json:"autostart"`
+}
+
+type autostartJSON struct {
+	Enabled bool `json:"enabled"`
 }
 
 type deviceJSON struct {
@@ -143,9 +165,22 @@ type pairingJSON struct {
 }
 
 func (s *Server) state(w http.ResponseWriter, r *http.Request) {
-	resp := stateResponse{Machine: s.machine, Devices: []deviceJSON{}}
+	resp := stateResponse{
+		Machine:   s.opts.Machine,
+		Version:   s.opts.Version,
+		UptimeSec: int(time.Since(s.started).Seconds()),
+		Devices:   []deviceJSON{},
+	}
+	if s.opts.Connected != nil {
+		resp.Relay = s.opts.Connected()
+	}
 	if locked, err := s.sess.Locked(r.Context()); err == nil {
 		resp.Locked = &locked
+	}
+	if s.opts.Autostart != nil {
+		if enabled, supported := s.opts.Autostart.Status(); supported {
+			resp.Autostart = &autostartJSON{Enabled: enabled}
+		}
 	}
 	for _, d := range s.gw.Devices().List() {
 		when := ""
@@ -182,6 +217,43 @@ func (s *Server) unpair(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// autostart schakelt meestarten aan of uit.
+func (s *Server) autostart(w http.ResponseWriter, r *http.Request) {
+	if s.opts.Autostart == nil {
+		http.Error(w, "niet beschikbaar", http.StatusNotImplemented)
+		return
+	}
+	var body struct {
+		Enable bool `json:"enable"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "ongeldige aanvraag", http.StatusBadRequest)
+		return
+	}
+	var err error
+	if body.Enable {
+		err = s.opts.Autostart.Enable()
+	} else {
+		err = s.opts.Autostart.Disable()
+	}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+}
+
+// stop beëindigt de agent netjes (de pagina meldt daarna zelf dat de
+// verbinding weg is).
+func (s *Server) stop(w http.ResponseWriter, _ *http.Request) {
+	if s.opts.Stop == nil {
+		http.Error(w, "niet beschikbaar", http.StatusNotImplemented)
+		return
+	}
+	writeJSON(w, map[string]bool{"ok": true})
+	go s.opts.Stop()
 }
 
 // qr rendert uitsluitend de ACTIEVE pairing-code (geen vrije invoer).

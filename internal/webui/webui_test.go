@@ -33,7 +33,7 @@ func newServer(t *testing.T) (*Server, *gateway.Gateway) {
 	sess := &fakeSession{locked: true}
 	c := core.New(sess, "test-pc", "linux", time.Now)
 	gw := gateway.New(c, keys, "agent-1", "wss://test/ws", devices, time.Now)
-	s, err := New(gw, sess, "test-pc")
+	s, err := New(gw, sess, Options{Machine: "test-pc"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,6 +126,64 @@ func TestUnpairRemovesDevice(t *testing.T) {
 	rec = doJSON(t, s.Handler(), "POST", "/api/unpair", s.csrfToken, `{"id":"phone-1"}`)
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("unpair van onbekend device: %d, verwacht 404", rec.Code)
+	}
+}
+
+type fakeAutostart struct {
+	enabled   bool
+	supported bool
+}
+
+func (f *fakeAutostart) Status() (bool, bool) { return f.enabled, f.supported }
+func (f *fakeAutostart) Enable() error        { f.enabled = true; return nil }
+func (f *fakeAutostart) Disable() error       { f.enabled = false; return nil }
+
+func TestAutostartToggleAndStop(t *testing.T) {
+	keys, _ := secure.GenerateKeys()
+	devices, _ := secure.LoadDevices(filepath.Join(t.TempDir(), "devices.json"))
+	sess := &fakeSession{}
+	gw := gateway.New(core.New(sess, "pc", "linux", time.Now), keys, "a", "wss://x/ws", devices, time.Now)
+	auto := &fakeAutostart{supported: true}
+	stopped := false
+	s, err := New(gw, sess, Options{
+		Machine:   "pc",
+		Version:   "9.9.9",
+		Connected: func() bool { return true },
+		Autostart: auto,
+		Stop:      func() { stopped = true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := s.Handler()
+
+	rec := doJSON(t, h, "GET", "/api/state", "", "")
+	body := rec.Body.String()
+	for _, want := range []string{`"version":"9.9.9"`, `"relay_connected":true`, `"autostart":{"enabled":false}`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("state mist %s: %s", want, body)
+		}
+	}
+
+	if rec := doJSON(t, h, "POST", "/api/autostart", s.csrfToken, `{"enable":true}`); rec.Code != 200 {
+		t.Fatalf("autostart aan: %d", rec.Code)
+	}
+	if !auto.enabled {
+		t.Error("autostart niet ingeschakeld")
+	}
+
+	if rec := doJSON(t, h, "POST", "/api/stop", s.csrfToken, ""); rec.Code != 200 {
+		t.Fatalf("stop: %d", rec.Code)
+	}
+	for i := 0; i < 100 && !stopped; i++ {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if !stopped {
+		t.Error("stopfunctie niet aangeroepen")
+	}
+
+	if rec := doJSON(t, h, "POST", "/api/stop", "", ""); rec.Code != 403 {
+		t.Errorf("stop zonder token: %d, verwacht 403", rec.Code)
 	}
 }
 

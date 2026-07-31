@@ -24,6 +24,20 @@ type Client struct {
 	keys    secure.Keys
 	handle  Handler
 	backoff backoff
+	onState func(connected bool)
+}
+
+// OnState registreert een callback voor verbindingsstatus (voor de UI);
+// aanroepen vóór Run.
+func (c *Client) OnState(fn func(connected bool)) *Client {
+	c.onState = fn
+	return c
+}
+
+func (c *Client) setState(connected bool) {
+	if c.onState != nil {
+		c.onState(connected)
+	}
 }
 
 // message covers every frame we exchange with the relay.
@@ -76,6 +90,8 @@ func (c *Client) session(ctx context.Context) error {
 		return err
 	}
 	c.backoff.reset()
+	c.setState(true)
+	defer c.setState(false)
 	log.Printf("relay: connected as %s", c.id)
 	return c.serve(ctx, conn)
 }

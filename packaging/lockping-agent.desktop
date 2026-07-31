@@ -2,7 +2,7 @@
 Type=Application
 Name=LockPing Agent
 Comment=Check. Tap. Locked. — instellingen en koppelen
-Exec=xdg-open http://127.0.0.1:41800/
+Exec=lockping-agent open
 Icon=lockping-agent
 Terminal=false
 Categories=Utility;Security;

@@ -32,6 +32,13 @@
 
   <div class="card">
     <div>Deze pc: <b id="machine">…</b> — <span id="lockstate" class="status">…</span></div>
+    <div class="muted" style="margin-top:8px">
+      Relay: <span id="relay">…</span> · agent <span id="version">…</span> · draait <span id="uptime">…</span>
+    </div>
+    <div id="agentctl" style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">
+      <button id="autostartbtn" hidden></button>
+      <button id="stopbtn" class="small" style="color:var(--danger)">Agent stoppen</button>
+    </div>
   </div>
 
   <div class="card">
@@ -56,8 +63,39 @@
 const TOKEN = '__TOKEN__';
 const headers = { 'X-LockPing-Token': TOKEN, 'Content-Type': 'application/json' };
 
+function fmtUptime(sec) {
+  if (sec < 90) return sec + 's';
+  if (sec < 5400) return Math.round(sec / 60) + ' min';
+  return Math.round(sec / 3600) + ' uur';
+}
+
+let gestopt = false;
+
 async function refresh() {
-  const state = await (await fetch('/api/state')).json();
+  if (gestopt) return;
+  let state;
+  try {
+    state = await (await fetch('/api/state')).json();
+  } catch {
+    document.getElementById('lockstate').textContent = 'agent niet bereikbaar';
+    document.getElementById('lockstate').className = 'status';
+    return;
+  }
+  document.getElementById('relay').textContent = state.relay_connected ? 'verbonden' : 'niet verbonden';
+  document.getElementById('relay').style.color = state.relay_connected ? 'var(--green)' : 'var(--danger)';
+  document.getElementById('version').textContent = state.version || 'dev';
+  document.getElementById('uptime').textContent = fmtUptime(state.uptime_sec);
+  const asBtn = document.getElementById('autostartbtn');
+  if (state.autostart) {
+    asBtn.hidden = false;
+    asBtn.textContent = state.autostart.enabled
+      ? 'Meestarten uitschakelen' : 'Automatisch meestarten';
+    asBtn.onclick = async () => {
+      await fetch('/api/autostart', { method: 'POST', headers,
+        body: JSON.stringify({ enable: !state.autostart.enabled }) });
+      refresh();
+    };
+  }
   document.getElementById('machine').textContent = state.machine;
   const lockEl = document.getElementById('lockstate');
   if (state.locked === null) { lockEl.textContent = 'status onbekend'; lockEl.className = 'status'; }
@@ -102,6 +140,14 @@ async function refresh() {
   }
   document.getElementById('nodevices').hidden = state.devices.length > 0;
 }
+
+document.getElementById('stopbtn').onclick = async () => {
+  if (!confirm('De agent stoppen? Je telefoon ziet deze pc dan als offline.')) return;
+  gestopt = true;
+  await fetch('/api/stop', { method: 'POST', headers }).catch(() => {});
+  document.body.innerHTML = '<main><h1>Agent gestopt</h1><p style="color:var(--dim)">' +
+    'Opnieuw starten: via het startmenu (LockPing Agent) of <code>lockping-agent run</code>.</p></main>';
+};
 
 document.getElementById('pairbtn').onclick = async () => {
   await fetch('/api/pair', { method: 'POST', headers });
