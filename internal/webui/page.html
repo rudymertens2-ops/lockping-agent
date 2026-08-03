@@ -23,50 +23,155 @@
     td { padding:6px 4px; border-top:1px solid var(--border); }
     td.id { font-family:monospace; font-size:11px; }
     .muted { color:var(--dim); font-size:13px; }
+    .langbar { display:flex; gap:6px; justify-content:flex-end; }
+    .langbar button { font-size:.75rem; padding:3px 10px; font-weight:400;
+      background:transparent; border-color:var(--border); color:var(--dim); }
+    .langbar button.active { background:var(--navy); color:#fff; border-color:var(--navy); }
   </style>
 </head>
 <body>
 <main>
+  <nav class="langbar" aria-label="Language">
+    <button type="button" data-lang="en">EN</button>
+    <button type="button" data-lang="nl">NL</button>
+    <button type="button" data-lang="fr">FR</button>
+  </nav>
   <img src="/logo.png" alt="LockPing" style="max-width:280px;width:70%;height:auto;display:block;margin-bottom:6px">
-  <p class="sub">Agent · Check. Tap. Locked.</p>
+  <p class="sub" data-i18n="sub">Agent · Check. Tap. Locked.</p>
 
   <div class="card">
-    <div>Deze pc: <b id="machine">…</b> — <span id="lockstate" class="status">…</span></div>
+    <div><span data-i18n="thisPc">Deze pc:</span> <b id="machine">…</b> — <span id="lockstate" class="status">…</span></div>
     <div class="muted" style="margin-top:8px">
-      Relay: <span id="relay">…</span> · agent <span id="version">…</span> · draait <span id="uptime">…</span>
+      <span data-i18n="relayLabel">Relay:</span> <span id="relay">…</span> ·
+      <span data-i18n="agentLabel">agent</span> <span id="version">…</span> ·
+      <span data-i18n="uptimeLabel">draait</span> <span id="uptime">…</span>
     </div>
     <div id="agentctl" style="margin-top:12px; display:flex; gap:8px; flex-wrap:wrap">
       <button id="autostartbtn" hidden></button>
-      <button id="stopbtn" class="small" style="color:var(--danger)">Agent stoppen</button>
+      <button id="stopbtn" class="small" style="color:var(--danger)" data-i18n="stopAgent">Agent stoppen</button>
     </div>
   </div>
 
   <div class="card">
-    <h3 style="margin-top:0">Telefoon koppelen</h3>
+    <h3 style="margin-top:0" data-i18n="pairTitle">Telefoon koppelen</h3>
     <div id="qrwrap" hidden>
-      <img id="qrimg" alt="QR-koppelcode" width="260" height="260">
-      <p class="muted">Nog <span id="ttl">…</span>s geldig · eenmalig bruikbaar</p>
+      <img id="qrimg" alt="QR" width="260" height="260">
+      <p class="muted"><span data-i18n="ttlPre">Nog</span> <span id="ttl">…</span><span data-i18n="ttlPost">s geldig · eenmalig bruikbaar</span></p>
       <p id="code"></p>
     </div>
-    <button id="pairbtn">Toon QR-code</button>
-    <p class="muted">Scan met de LockPing-app op je telefoon:
-      <b>app.lockping.rm-worx.be</b> → “PC koppelen”.</p>
+    <button id="pairbtn" data-i18n="showQr">Toon QR-code</button>
+    <p class="muted"><span data-i18n="scanHint">Scan met de LockPing-app op je telefoon:</span>
+      <b>app.lockping.rm-worx.be</b> <span data-i18n="scanHint2">→ “PC koppelen”.</span></p>
   </div>
 
   <div class="card">
-    <h3 style="margin-top:0">Gekoppelde toestellen</h3>
+    <h3 style="margin-top:0" data-i18n="devicesTitle">Gekoppelde toestellen</h3>
     <table id="devices"></table>
-    <p class="muted" id="nodevices" hidden>Nog geen toestellen gekoppeld.</p>
+    <p class="muted" id="nodevices" hidden data-i18n="noDevices">Nog geen toestellen gekoppeld.</p>
   </div>
 </main>
 <script>
 const TOKEN = '__TOKEN__';
 const headers = { 'X-LockPing-Token': TOKEN, 'Content-Type': 'application/json' };
 
+/* Drietalig, net als de app. Taal via ?lang=, anders browsertaal, anders EN. */
+const I18N = {
+  en: {
+    title: 'LockPing Agent', sub: 'Agent · Check. Tap. Locked.',
+    thisPc: 'This PC:', relayLabel: 'Relay:', agentLabel: 'agent', uptimeLabel: 'running',
+    connected: 'connected', disconnected: 'not connected',
+    locked: 'locked', unlocked: 'unlocked', unknown: 'state unknown',
+    unreachable: 'agent unreachable',
+    autostartOn: 'Start automatically', autostartOff: 'Disable auto-start',
+    stopAgent: 'Stop agent',
+    stopConfirm: 'Stop the agent? Your phone will then see this PC as offline.',
+    stoppedTitle: 'Agent stopped',
+    stoppedBody: 'To start it again: use the start menu (LockPing Agent) or run',
+    pairTitle: 'Pair your phone', showQr: 'Show QR code', newQr: 'New code',
+    ttlPre: 'Valid for another', ttlPost: 's · single use',
+    scanHint: 'Scan it with the LockPing app on your phone:', scanHint2: '→ "Pair a PC".',
+    devicesTitle: 'Paired devices', noDevices: 'No devices paired yet.',
+    unnamed: '(unnamed device)', unpair: 'unpair',
+    unpairConfirm: 'Unpair this device?',
+    minutes: 'min', hours: 'h',
+  },
+  nl: {
+    title: 'LockPing Agent', sub: 'Agent · Check. Tap. Locked.',
+    thisPc: 'Deze pc:', relayLabel: 'Relay:', agentLabel: 'agent', uptimeLabel: 'draait',
+    connected: 'verbonden', disconnected: 'niet verbonden',
+    locked: 'vergrendeld', unlocked: 'onvergrendeld', unknown: 'status onbekend',
+    unreachable: 'agent niet bereikbaar',
+    autostartOn: 'Automatisch meestarten', autostartOff: 'Meestarten uitschakelen',
+    stopAgent: 'Agent stoppen',
+    stopConfirm: 'De agent stoppen? Je telefoon ziet deze pc dan als offline.',
+    stoppedTitle: 'Agent gestopt',
+    stoppedBody: 'Opnieuw starten: via het startmenu (LockPing Agent) of met',
+    pairTitle: 'Telefoon koppelen', showQr: 'Toon QR-code', newQr: 'Nieuwe code',
+    ttlPre: 'Nog', ttlPost: 's geldig · eenmalig bruikbaar',
+    scanHint: 'Scan met de LockPing-app op je telefoon:', scanHint2: '→ "PC koppelen".',
+    devicesTitle: 'Gekoppelde toestellen', noDevices: 'Nog geen toestellen gekoppeld.',
+    unnamed: '(naamloos toestel)', unpair: 'ontkoppel',
+    unpairConfirm: 'Dit toestel ontkoppelen?',
+    minutes: 'min', hours: 'uur',
+  },
+  fr: {
+    title: 'LockPing Agent', sub: 'Agent · Check. Tap. Locked.',
+    thisPc: 'Ce PC :', relayLabel: 'Relais :', agentLabel: 'agent', uptimeLabel: 'actif depuis',
+    connected: 'connecté', disconnected: 'non connecté',
+    locked: 'verrouillé', unlocked: 'déverrouillé', unknown: 'état inconnu',
+    unreachable: 'agent injoignable',
+    autostartOn: 'Démarrage automatique', autostartOff: 'Désactiver le démarrage auto',
+    stopAgent: "Arrêter l'agent",
+    stopConfirm: "Arrêter l'agent ? Votre téléphone verra ce PC comme hors ligne.",
+    stoppedTitle: 'Agent arrêté',
+    stoppedBody: 'Pour le relancer : via le menu Démarrer (LockPing Agent) ou avec',
+    pairTitle: 'Associer votre téléphone', showQr: 'Afficher le code QR', newQr: 'Nouveau code',
+    ttlPre: 'Encore', ttlPost: 's · usage unique',
+    scanHint: "Scannez-le avec l'app LockPing sur votre téléphone :", scanHint2: '→ « Associer un PC ».',
+    devicesTitle: 'Appareils associés', noDevices: 'Aucun appareil associé.',
+    unnamed: '(appareil sans nom)', unpair: 'dissocier',
+    unpairConfirm: 'Dissocier cet appareil ?',
+    minutes: 'min', hours: 'h',
+  },
+};
+
+function pickLang() {
+  const q = new URLSearchParams(location.search).get('lang');
+  if (I18N[q]) return q;
+  const stored = localStorage.getItem('lockping.agent.lang');
+  if (I18N[stored]) return stored;
+  const base = (navigator.language || 'en').slice(0, 2).toLowerCase();
+  return I18N[base] ? base : 'en';
+}
+
+let lang = pickLang();
+let T = I18N[lang];
+
+function applyLang() {
+  T = I18N[lang];
+  document.documentElement.lang = lang;
+  document.title = T.title;
+  document.querySelectorAll('[data-i18n]').forEach((el) => {
+    el.textContent = T[el.dataset.i18n] ?? el.textContent;
+  });
+  document.querySelectorAll('.langbar button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.lang === lang);
+  });
+  refresh();
+}
+
+document.querySelectorAll('.langbar button').forEach((b) => {
+  b.onclick = () => {
+    lang = b.dataset.lang;
+    localStorage.setItem('lockping.agent.lang', lang);
+    applyLang();
+  };
+});
+
 function fmtUptime(sec) {
   if (sec < 90) return sec + 's';
-  if (sec < 5400) return Math.round(sec / 60) + ' min';
-  return Math.round(sec / 3600) + ' uur';
+  if (sec < 5400) return Math.round(sec / 60) + ' ' + T.minutes;
+  return Math.round(sec / 3600) + ' ' + T.hours;
 }
 
 let gestopt = false;
@@ -77,19 +182,18 @@ async function refresh() {
   try {
     state = await (await fetch('/api/state')).json();
   } catch {
-    document.getElementById('lockstate').textContent = 'agent niet bereikbaar';
+    document.getElementById('lockstate').textContent = T.unreachable;
     document.getElementById('lockstate').className = 'status';
     return;
   }
-  document.getElementById('relay').textContent = state.relay_connected ? 'verbonden' : 'niet verbonden';
+  document.getElementById('relay').textContent = state.relay_connected ? T.connected : T.disconnected;
   document.getElementById('relay').style.color = state.relay_connected ? 'var(--green)' : 'var(--danger)';
   document.getElementById('version').textContent = state.version || 'dev';
   document.getElementById('uptime').textContent = fmtUptime(state.uptime_sec);
   const asBtn = document.getElementById('autostartbtn');
   if (state.autostart) {
     asBtn.hidden = false;
-    asBtn.textContent = state.autostart.enabled
-      ? 'Meestarten uitschakelen' : 'Automatisch meestarten';
+    asBtn.textContent = state.autostart.enabled ? T.autostartOff : T.autostartOn;
     asBtn.onclick = async () => {
       await fetch('/api/autostart', { method: 'POST', headers,
         body: JSON.stringify({ enable: !state.autostart.enabled }) });
@@ -98,9 +202,9 @@ async function refresh() {
   }
   document.getElementById('machine').textContent = state.machine;
   const lockEl = document.getElementById('lockstate');
-  if (state.locked === null) { lockEl.textContent = 'status onbekend'; lockEl.className = 'status'; }
-  else if (state.locked) { lockEl.textContent = 'vergrendeld'; lockEl.className = 'status locked'; }
-  else { lockEl.textContent = 'onvergrendeld'; lockEl.className = 'status unlocked'; }
+  if (state.locked === null) { lockEl.textContent = T.unknown; lockEl.className = 'status'; }
+  else if (state.locked) { lockEl.textContent = T.locked; lockEl.className = 'status locked'; }
+  else { lockEl.textContent = T.unlocked; lockEl.className = 'status unlocked'; }
 
   const wrap = document.getElementById('qrwrap');
   if (state.pairing) {
@@ -110,10 +214,10 @@ async function refresh() {
     const img = document.getElementById('qrimg');
     const src = '/qr.png?v=' + encodeURIComponent(state.pairing.code.slice(-12));
     if (!img.src.endsWith(src)) img.src = src;
-    document.getElementById('pairbtn').textContent = 'Nieuwe code';
+    document.getElementById('pairbtn').textContent = T.newQr;
   } else {
     wrap.hidden = true;
-    document.getElementById('pairbtn').textContent = 'Toon QR-code';
+    document.getElementById('pairbtn').textContent = T.showQr;
   }
 
   const table = document.getElementById('devices');
@@ -122,7 +226,7 @@ async function refresh() {
     const row = table.insertRow();
     const cell = row.insertCell();
     const name = document.createElement('b');
-    name.textContent = d.name || '(naamloos toestel)';
+    name.textContent = d.name || T.unnamed;
     const id = document.createElement('div');
     id.className = 'id';
     id.textContent = d.id;
@@ -130,9 +234,9 @@ async function refresh() {
     row.insertCell().textContent = d.paired_at;
     const btn = document.createElement('button');
     btn.className = 'small';
-    btn.textContent = 'ontkoppel';
+    btn.textContent = T.unpair;
     btn.onclick = async () => {
-      if (!confirm('Dit toestel ontkoppelen?')) return;
+      if (!confirm(T.unpairConfirm)) return;
       await fetch('/api/unpair', { method: 'POST', headers, body: JSON.stringify({ id: d.id }) });
       refresh();
     };
@@ -142,11 +246,11 @@ async function refresh() {
 }
 
 document.getElementById('stopbtn').onclick = async () => {
-  if (!confirm('De agent stoppen? Je telefoon ziet deze pc dan als offline.')) return;
+  if (!confirm(T.stopConfirm)) return;
   gestopt = true;
   await fetch('/api/stop', { method: 'POST', headers }).catch(() => {});
-  document.body.innerHTML = '<main><h1>Agent gestopt</h1><p style="color:var(--dim)">' +
-    'Opnieuw starten: via het startmenu (LockPing Agent) of <code>lockping-agent run</code>.</p></main>';
+  document.body.innerHTML = '<main><h1>' + T.stoppedTitle + '</h1><p style="color:var(--dim)">' +
+    T.stoppedBody + ' <code>lockping-agent run</code>.</p></main>';
 };
 
 document.getElementById('pairbtn').onclick = async () => {
@@ -154,7 +258,7 @@ document.getElementById('pairbtn').onclick = async () => {
   refresh();
 };
 
-refresh();
+applyLang();
 setInterval(refresh, 2000);
 </script>
 </body>
