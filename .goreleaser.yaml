@@ -13,6 +13,13 @@ builds:
     ignore:
       - goos: windows
         goarch: arm64
+    # Windows als GUI-binary: geen zwart consolevenster bij autostart of
+    # tray. CLI-uitvoer blijft werken via AttachConsole (console_windows.go).
+    overrides:
+      - goos: windows
+        goarch: amd64
+        ldflags:
+          - -s -w -H=windowsgui -X main.version={{.Version}}
 
 # Stabiele bestandsnamen (zonder versie) zodat de landingspagina naar
 # /releases/latest/download/<naam> kan linken.
