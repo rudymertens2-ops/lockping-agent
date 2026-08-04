@@ -18,24 +18,28 @@ const (
 	propsIface    = "org.freedesktop.DBus.Properties"
 )
 
-// logind tracks one systemd-logind session over the system D-Bus.
+// logind tracks the current user's lockable logind session over the system
+// D-Bus. The session path is resolved lazily on every operation rather than
+// pinned at startup: a systemd --user service can start before the graphical
+// session is registered, and re-resolving also survives fast user switching.
 type logind struct {
 	conn *dbus.Conn
-	path dbus.ObjectPath
+	uid  uint32
 }
 
-// New connects to logind and binds to the current user's session.
+// New connects to logind. It verifies that a lockable session can be found
+// now, but does not pin it — each call re-resolves.
 func New() (Controller, error) {
 	conn, err := dbus.ConnectSystemBus()
 	if err != nil {
 		return nil, fmt.Errorf("session: connect system bus: %w", err)
 	}
-	path, err := findSessionPath(conn, uint32(os.Getuid()))
-	if err != nil {
+	l := &logind{conn: conn, uid: uint32(os.Getuid())}
+	if _, err := l.sessionPath(); err != nil {
 		conn.Close()
 		return nil, err
 	}
-	return &logind{conn: conn, path: path}, nil
+	return l, nil
 }
 
 // listedSession mirrors the (susso) tuple of Manager.ListSessions.
@@ -47,9 +51,10 @@ type listedSession struct {
 	Path dbus.ObjectPath
 }
 
-func findSessionPath(conn *dbus.Conn, uid uint32) (dbus.ObjectPath, error) {
+// sessionPath resolves the best lockable session for our uid right now.
+func (l *logind) sessionPath() (dbus.ObjectPath, error) {
 	var listed []listedSession
-	obj := conn.Object(logindService, managerPath)
+	obj := l.conn.Object(logindService, managerPath)
 	if err := obj.Call(managerIface+".ListSessions", 0).Store(&listed); err != nil {
 		return "", fmt.Errorf("session: list sessions: %w", err)
 	}
@@ -57,20 +62,21 @@ func findSessionPath(conn *dbus.Conn, uid uint32) (dbus.ObjectPath, error) {
 	paths := make(map[string]dbus.ObjectPath)
 	var cands []Candidate
 	for _, s := range listed {
-		if s.UID != uid {
+		if s.UID != l.uid {
 			continue
 		}
 		paths[s.ID] = s.Path
 		cands = append(cands, Candidate{
 			ID:        s.ID,
-			Active:    boolProp(conn, s.Path, "Active"),
-			Graphical: isGraphical(stringProp(conn, s.Path, "Type")),
+			Class:     stringProp(l.conn, s.Path, "Class"),
+			Active:    boolProp(l.conn, s.Path, "Active"),
+			Graphical: isGraphical(stringProp(l.conn, s.Path, "Type")),
 		})
 	}
 
 	c, ok := pickCandidate(cands)
 	if !ok {
-		return "", fmt.Errorf("session: no logind session for uid %d", uid)
+		return "", fmt.Errorf("session: no lockable logind session for uid %d", l.uid)
 	}
 	return paths[c.ID], nil
 }
@@ -96,7 +102,11 @@ func stringProp(conn *dbus.Conn, path dbus.ObjectPath, name string) string {
 }
 
 func (l *logind) Locked(ctx context.Context) (bool, error) {
-	v, err := l.conn.Object(logindService, l.path).GetProperty(sessionIface + ".LockedHint")
+	path, err := l.sessionPath()
+	if err != nil {
+		return false, err
+	}
+	v, err := l.conn.Object(logindService, path).GetProperty(sessionIface + ".LockedHint")
 	if err != nil {
 		return false, fmt.Errorf("session: read LockedHint: %w", err)
 	}
@@ -108,18 +118,25 @@ func (l *logind) Locked(ctx context.Context) (bool, error) {
 }
 
 func (l *logind) Lock(ctx context.Context) error {
-	call := l.conn.Object(logindService, l.path).CallWithContext(ctx, sessionIface+".Lock", 0)
+	path, err := l.sessionPath()
+	if err != nil {
+		return err
+	}
+	call := l.conn.Object(logindService, path).CallWithContext(ctx, sessionIface+".Lock", 0)
 	if call.Err != nil {
 		return fmt.Errorf("session: lock: %w", call.Err)
 	}
 	return nil
 }
 
+// Watch reports lock/unlock changes. It listens broadly to
+// PropertiesChanged on login1 sessions (the tracked session can change) and
+// re-reads the current lock state on each relevant signal.
 func (l *logind) Watch(ctx context.Context, onChange func(locked bool)) error {
 	if err := l.conn.AddMatchSignal(
-		dbus.WithMatchObjectPath(l.path),
 		dbus.WithMatchInterface(propsIface),
 		dbus.WithMatchMember("PropertiesChanged"),
+		dbus.WithMatchArg(0, sessionIface),
 	); err != nil {
 		return fmt.Errorf("session: subscribe: %w", err)
 	}
@@ -139,8 +156,11 @@ func (l *logind) Watch(ctx context.Context, onChange func(locked bool)) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case sig := <-signals:
-			locked, present := lockedHintFrom(sig)
-			if !present || locked == last {
+			if !mentionsLockedHint(sig) {
+				continue
+			}
+			locked, err := l.Locked(ctx)
+			if err != nil || locked == last {
 				continue
 			}
 			last = locked
@@ -149,23 +169,29 @@ func (l *logind) Watch(ctx context.Context, onChange func(locked bool)) error {
 	}
 }
 
-// lockedHintFrom extracts LockedHint from a PropertiesChanged signal body:
+// mentionsLockedHint reports whether a PropertiesChanged signal touches
+// LockedHint, either as a changed value or an invalidated property. Body:
 // (interface string, changed map[string]Variant, invalidated []string).
-func lockedHintFrom(sig *dbus.Signal) (locked, present bool) {
-	if sig == nil || len(sig.Body) < 2 {
-		return false, false
+func mentionsLockedHint(sig *dbus.Signal) bool {
+	if sig == nil || len(sig.Body) < 3 {
+		return false
 	}
-	iface, _ := sig.Body[0].(string)
-	if iface != sessionIface {
-		return false, false
+	if iface, _ := sig.Body[0].(string); iface != sessionIface {
+		return false
 	}
-	changed, _ := sig.Body[1].(map[string]dbus.Variant)
-	v, ok := changed["LockedHint"]
-	if !ok {
-		return false, false
+	if changed, ok := sig.Body[1].(map[string]dbus.Variant); ok {
+		if _, hit := changed["LockedHint"]; hit {
+			return true
+		}
 	}
-	locked, ok = v.Value().(bool)
-	return locked, ok
+	if invalidated, ok := sig.Body[2].([]string); ok {
+		for _, name := range invalidated {
+			if name == "LockedHint" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func (l *logind) Close() error {

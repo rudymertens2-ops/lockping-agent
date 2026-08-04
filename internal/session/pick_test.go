@@ -14,6 +14,11 @@ func TestIsGraphical(t *testing.T) {
 	}
 }
 
+// user is a shorthand for a lockable candidate in the tests below.
+func user(id string, active, graphical bool) Candidate {
+	return Candidate{ID: id, Class: "user", Active: active, Graphical: graphical}
+}
+
 func TestPickCandidate(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -25,39 +30,54 @@ func TestPickCandidate(t *testing.T) {
 		{
 			name: "prefers active graphical over active tty",
 			cands: []Candidate{
-				{ID: "1", Active: true, Graphical: false},
-				{ID: "2", Active: true, Graphical: true},
+				user("1", true, false),
+				user("2", true, true),
 			},
 			wantID: "2", wantOK: true,
 		},
 		{
 			name: "prefers active tty over inactive graphical",
 			cands: []Candidate{
-				{ID: "3", Active: false, Graphical: true},
-				{ID: "1", Active: true, Graphical: false},
+				user("3", false, true),
+				user("1", true, false),
 			},
 			wantID: "1", wantOK: true,
 		},
 		{
 			name: "prefers inactive graphical over inactive tty",
 			cands: []Candidate{
-				{ID: "1", Active: false, Graphical: false},
-				{ID: "3", Active: false, Graphical: true},
+				user("1", false, false),
+				user("3", false, true),
 			},
 			wantID: "3", wantOK: true,
 		},
 		{
 			name:   "single session wins by default",
-			cands:  []Candidate{{ID: "9"}},
+			cands:  []Candidate{user("9", false, false)},
 			wantID: "9", wantOK: true,
 		},
 		{
 			name: "first wins on equal score",
 			cands: []Candidate{
-				{ID: "a", Active: true, Graphical: true},
-				{ID: "b", Active: true, Graphical: true},
+				user("a", true, true),
+				user("b", true, true),
 			},
 			wantID: "a", wantOK: true,
+		},
+		{
+			name: "skips the user-manager session even when active",
+			cands: []Candidate{
+				{ID: "manager", Class: "manager", Active: true, Graphical: false},
+				user("desktop", true, true),
+			},
+			wantID: "desktop", wantOK: true,
+		},
+		{
+			name: "no lockable session when only the manager exists",
+			cands: []Candidate{
+				{ID: "manager", Class: "manager", Active: true, Graphical: false},
+			},
+			wantOK: false,
 		},
 	}
 	for _, tt := range tests {

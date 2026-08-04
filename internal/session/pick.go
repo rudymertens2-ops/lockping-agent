@@ -4,6 +4,7 @@ package session
 // selection logic needs. Kept free of D-Bus types so it is unit-testable.
 type Candidate struct {
 	ID        string
+	Class     string
 	Active    bool
 	Graphical bool
 }
@@ -18,11 +19,24 @@ func isGraphical(sessionType string) bool {
 	return false
 }
 
-// pickCandidate chooses the session the agent tracks: an active graphical
-// one if available, then any active, then any graphical, then the first.
+// isLockable reports whether a session can be locked at all. The systemd
+// --user manager registers its own session (Class="manager",
+// Type="unspecified") that has no screen and never locks; binding to it is
+// the classic bug when the agent starts before the graphical session
+// exists. Only real user sessions qualify.
+func isLockable(c Candidate) bool {
+	return c.Class == "user"
+}
+
+// pickCandidate chooses the session the agent tracks. It ignores sessions
+// that cannot be locked (e.g. the user-manager session), then prefers an
+// active graphical one, then any active, then any graphical, then the first.
 func pickCandidate(cands []Candidate) (Candidate, bool) {
 	best, bestScore := -1, -1
 	for i, c := range cands {
+		if !isLockable(c) {
+			continue
+		}
 		score := 0
 		if c.Active {
 			score += 2
