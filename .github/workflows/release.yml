@@ -8,6 +8,8 @@ permissions:
   contents: write
 
 jobs:
+  # Linux-artefacten + de GitHub-release: binaries, rpm/deb, archieven,
+  # checksums. Alles ongesigneerd en onderling consistent.
   goreleaser:
     runs-on: ubuntu-latest
     steps:
@@ -25,13 +27,68 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Windows-installer (NSIS, per-gebruiker)
+
+  # Windows-installer, met Azure Artifact Signing (uitgever: RM-Worx).
+  # Draait ná de release, op een Windows-runner (signtool is Windows-only):
+  # bouwt de GUI-exe, signeert hem, bouwt de NSIS-installer rond de
+  # gesigneerde exe en signeert ook de installer. Upload gebeurt op de
+  # bestaande release.
+  windows-installer:
+    needs: goreleaser
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build the Windows GUI binary
+        shell: bash
         run: |
-          sudo apt-get update -q && sudo apt-get install -y -q nsis
-          cp "$(find dist -name lockping-agent.exe -path '*windows*' | head -1)" packaging/
-          makensis -DVERSION="${GITHUB_REF_NAME#v}" packaging/windows-installer.nsi
-          gh release upload "${GITHUB_REF_NAME}" packaging/lockping-agent-setup.exe --clobber
+          VER="${GITHUB_REF_NAME#v}"
+          mkdir -p stage
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 \
+            go build -ldflags "-s -w -H=windowsgui -X main.version=${VER}" \
+            -o stage/lockping-agent.exe ./cmd/lockping-agent
+
+      - name: Sign the agent binary
+        uses: azure/trusted-signing-action@v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ secrets.SIGNING_PROFILE_NAME }}
+          files-folder: ${{ github.workspace }}\stage
+          files-folder-filter: exe
+
+      - name: Build the installer around the signed binary
+        shell: bash
+        run: |
+          VER="${GITHUB_REF_NAME#v}"
+          choco install nsis --no-progress -y
+          cp stage/lockping-agent.exe packaging/
+          "/c/Program Files (x86)/NSIS/makensis.exe" -DVERSION="${VER}" packaging/windows-installer.nsi
+          mkdir -p signed
+          mv packaging/lockping-agent-setup.exe signed/
+
+      - name: Sign the installer
+        uses: azure/trusted-signing-action@v2.0.0
+        with:
+          azure-tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          azure-client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ secrets.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ secrets.SIGNING_ENDPOINT }}
+          signing-account-name: ${{ secrets.SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ secrets.SIGNING_PROFILE_NAME }}
+          files-folder: ${{ github.workspace }}\signed
+          files-folder-filter: exe
+
+      - name: Upload the signed installer
+        shell: bash
+        run: gh release upload "${GITHUB_REF_NAME}" signed/lockping-agent-setup.exe --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Toekomst: vóór de upload signeren met azure/trusted-signing-action
-        # (exe én setup.exe) zodra het Trusted Signing-account bestaat.
